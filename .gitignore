@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+db.sqlite3
+.token
+.env
+.coverage
+coverage_html/
+cli/target/
+staticfiles/
+
