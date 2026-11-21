@@ -7,7 +7,7 @@ before touching the DB.
 """
 from datetime import date
 
-from django.db.models import Prefetch, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -346,9 +346,33 @@ def member_skill_item_delete(request, ident: str, skill_id: int):
     return JsonResponse({"deleted": True})
 
 
+PEOPLE_FIELDS = (
+    "id", "directory_id", "discord_id", "name", "avatar_url", "positions", "status",
+    "archived", "inductions", "skill_items", "ratings",
+)
+
+
 @require_GET
 def people(request):
-    """Non-archived members for the directory page / bot (?archived=1 adds archived, admins only)."""
+    """Non-archived members for the directory page / bot (?archived=1 adds archived, admins only).
+
+    Optional lookups: name, email, discordId, directoryId, position, skill, wantsToLearn, status;
+    fields=a,b,c returns only those keys.
+    """
+    params = {}
+    for key in ("name", "email", "discordId", "directoryId", "position", "skill", "wantsToLearn", "status"):
+        value, err = clean_str(request.GET.get(key), 200, field=key)
+        if err:
+            return JsonResponse({"error": err}, status=400)
+        if value.strip():
+            params[key] = value.strip()
+    fields = None
+    if "fields" in request.GET:
+        fields = list(dict.fromkeys(f.strip() for f in request.GET["fields"].split(",") if f.strip()))
+        if not fields or any(f not in PEOPLE_FIELDS for f in fields):
+            return JsonResponse(
+                {"error": f"fields must be a comma-separated list of: {', '.join(PEOPLE_FIELDS)}"}, status=400
+            )
     members = Member.objects.all()
     if request.GET.get("archived") == "1":
         if not _is_service(request):
@@ -357,13 +381,37 @@ def people(request):
                 return err
     else:
         members = members.filter(archived_at__isnull=True)
+    if "name" in params:
+        members = members.filter(
+            Q(display_name__icontains=params["name"]) | Q(discord_username__icontains=params["name"])
+        )
+    if "email" in params:
+        members = members.filter(email__iexact=params["email"])
+    if "discordId" in params:
+        members = members.filter(discord_id=params["discordId"])
+    if "directoryId" in params:
+        members = members.filter(directory_id=params["directoryId"])
+    if "status" in params:
+        members = members.filter(status__iexact=params["status"])
+    if "skill" in params:
+        members = members.filter(
+            skill_items__skill__name__icontains=params["skill"], skill_items__level__gt=0
+        )
+    if "wantsToLearn" in params:
+        members = members.filter(
+            skill_items__skill__name__icontains=params["wantsToLearn"], skill_items__wants_to_learn=True
+        )
     approved = Induction.objects.filter(status=Induction.STATUS_APPROVED).select_related("induction_type")
-    members = members.select_related("skill_rating").prefetch_related(
+    members = members.distinct().select_related("skill_rating").prefetch_related(
         Prefetch("inductions", queryset=approved, to_attr="approved_inductions"),
         Prefetch("skill_items", queryset=MemberSkill.objects.select_related("skill").order_by("skill__name")),
     ).order_by("display_name")
-    return JsonResponse({"people": [
-        {
+    if "position" in params:
+        needle = params["position"].lower()
+        members = [m for m in members if any(needle in str(p).lower() for p in m.positions or [])]
+    out = []
+    for m in members:
+        row = {
             "id": m.directory_id or m.discord_id,
             "directory_id": m.directory_id,
             "discord_id": m.discord_id,
@@ -380,8 +428,8 @@ def people(request):
             ],
             "ratings": _rating_payload(getattr(m, "skill_rating", None)),
         }
-        for m in members
-    ]})
+        out.append({k: row[k] for k in fields} if fields else row)
+    return JsonResponse({"people": out})
 
 
 @require_POST

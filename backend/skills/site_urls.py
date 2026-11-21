@@ -1,7 +1,7 @@
 """Website routes (mounted at / in config/urls.py)."""
 from django.urls import path
 
-from . import auth_authentik, site_views as v
+from . import auth_authentik, site_api, site_views as v
 
 
 urlpatterns = [
@@ -21,4 +21,7 @@ urlpatterns = [
     path("inductions/request/", v.induction_request, name="induction_request"),
     path("inductions/<int:pk>/review/", v.induction_review, name="induction_review"),
     path("directory/sync/", v.directory_sync_now, name="directory_sync_now"),
+    path("api-keys/", site_api.api_keys, name="api_keys"),
+    path("api-keys/create/", site_api.api_key_create, name="api_key_create"),
+    path("api-keys/<int:pk>/revoke/", site_api.api_key_revoke, name="api_key_revoke"),
 ]

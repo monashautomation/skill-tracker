@@ -4,6 +4,8 @@ Two auth surfaces:
 - Service token (shared bearer SKILL_TRACKER_TOKEN) for server-to-server
   calls from discordbot / Tamarin / the training-site backend. Sets
   request.caller_member from X-Caller-Member when present.
+- Admin-issued API key (X-API-Key or Authorization: Bearer, sha256-hashed in
+  the ApiKey table): acts like the service token, `read` scope is GET-only.
 - Browser session token (django.core.signing, salt "session") issued by the
   Discord OAuth flow. Sets request.session_member.
 
@@ -12,15 +14,18 @@ expensive endpoints outside the rate-limited prefix get skipped entirely)
 and a minimal CORS shim so the training-site frontend can call the API
 without pulling in django-cors-headers.
 """
+import hashlib
 import hmac
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.core import signing
 from django.http import JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.utils import timezone
 
-from .models import Member
+from .models import ApiKey, Member
 
 SESSION_SALT = "session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
@@ -68,20 +73,40 @@ class ApiTokenMiddleware:
     def __call__(self, request):
         request.caller_member = None
         request.session_member = None
+        request.api_key = None
 
-        if request.path.startswith("/api/auth/"):
+        # /api/v1/ is an alias of /api/: apply every check to the canonical path
+        path = request.path
+        if path.startswith("/api/v1/"):
+            path = "/api/" + path[len("/api/v1/"):]
+
+        if path.startswith("/api/auth/"):
             if self._rate_limited(request):
                 return JsonResponse({"error": "rate limited"}, status=429)
             return self.get_response(request)
 
-        if request.path.startswith("/api/") and not request.path.startswith(self.OPEN_PATHS):
+        if path.startswith("/api/") and not path.startswith(self.OPEN_PATHS):
             expected = settings.SKILL_TRACKER_TOKEN
             supplied = ""
             header = request.headers.get("Authorization", "")
             if header.startswith("Bearer "):
                 supplied = header[7:]
             token_ok = bool(expected) and hmac.compare_digest(supplied, expected)
-            if token_ok:
+            api_key = None
+            if not token_ok:
+                key = request.headers.get("X-API-Key", "") or supplied
+                if key:
+                    api_key = ApiKey.objects.filter(
+                        key_hash=hashlib.sha256(key.encode()).hexdigest(), revoked_at__isnull=True
+                    ).first()
+            if api_key:
+                if api_key.scope == ApiKey.SCOPE_READ and request.method not in ("GET", "HEAD", "OPTIONS"):
+                    return JsonResponse({"error": "this key is read-only"}, status=403)
+                now = timezone.now()
+                if api_key.last_used_at is None or now - api_key.last_used_at > timedelta(minutes=1):
+                    ApiKey.objects.filter(pk=api_key.pk).update(last_used_at=now)
+                request.api_key = api_key
+            if token_ok or api_key:
                 caller_id = request.headers.get("X-Caller-Member", "")
                 if caller_id:
                     request.caller_member = Member.objects.filter(discord_id=caller_id).first()
@@ -140,7 +165,7 @@ class CorsMiddleware:
             resp["Access-Control-Allow-Origin"] = origin
             resp["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
             resp["Access-Control-Allow-Headers"] = (
-                "Authorization, Content-Type, X-Auth-Token, X-Caller-Member"
+                "Authorization, Content-Type, X-API-Key, X-Auth-Token, X-Caller-Member"
             )
             resp["Access-Control-Max-Age"] = "86400"
         return resp

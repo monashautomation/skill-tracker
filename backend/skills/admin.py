@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     ActionItem,
+    ApiKey,
     EquipmentGroup,
     Induction,
     InductionType,
@@ -86,6 +87,18 @@ class RoleRuleAdmin(admin.ModelAdmin):
 @admin.register(LessonCompletion)
 class LessonCompletionAdmin(admin.ModelAdmin):
     list_display = ("member", "lesson", "completed_at", "points_awarded")
+
+
+@admin.register(ApiKey)
+class ApiKeyAdmin(admin.ModelAdmin):
+    """Hashes are never shown; create keys on the /api-keys/ page. Revoke by setting revoked_at."""
+
+    list_display = ("name", "key_prefix", "scope", "created_by", "created_at", "last_used_at", "revoked_at")
+    fields = ("name", "key_prefix", "scope", "created_by", "created_at", "last_used_at", "revoked_at")
+    readonly_fields = ("key_prefix", "scope", "created_by", "created_at", "last_used_at")
+
+    def has_add_permission(self, request):
+        return False
 
 
 admin.site.register([Skill, MemberSkill])

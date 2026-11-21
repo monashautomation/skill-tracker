@@ -78,7 +78,7 @@ def _apply(person: dict, info: dict | None) -> tuple[Member, str]:
     member.status = person.get("status") or member.status
     if info is not None:
         member.is_admin = info.get("role") == "admin"
-    if member.status == "former":
+    if member.status in ("former", "inactive"):
         member.archived_at = member.archived_at or timezone.now()
     else:
         member.archived_at = None

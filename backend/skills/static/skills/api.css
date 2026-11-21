@@ -1,0 +1,20 @@
+/* API keys + reference page. Uses site.css custom properties; linked only from api.html. */
+.apik { display: grid; gap: 40px; }
+.apik .panel, .apik .ep { background: var(--canvas); border: 1px solid var(--line); padding: 24px; }
+.apik form.create { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 16px; }
+.apik form.create label { flex: 1 1 220px; }
+.apik form.create .btn { flex: none; }
+.apik .newkey { border-color: var(--accent); }
+.apik .newkey code { display: block; margin-top: 10px; padding: 10px; background: var(--bg); overflow-x: auto; user-select: all; }
+.apik table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 14px; }
+.apik th, .apik td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.apik th { color: var(--muted); font-weight: 400; font-size: 12px; }
+.apik .tablewrap { overflow-x: auto; }
+.apik code, .apik pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.apik pre { margin: 8px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto; }
+.apik .docs { display: grid; gap: 14px; }
+.apik .docs h3 { font-family: var(--display); font-size: 28px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; margin-top: 16px; }
+.apik .ep__head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.apik .ep__head b { border: 1px solid var(--accent); color: var(--accent-text); padding: 0 8px; font-size: 12px; }
+.apik .ep__head i { font-style: normal; color: var(--muted); font-size: 12px; margin-left: auto; }
+.apik .ep p { margin-top: 6px; color: var(--muted); }

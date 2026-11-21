@@ -81,6 +81,11 @@ class DirectorySyncTests(TestCase):
         self.assertEqual(Member.objects.filter(archived_at__isnull=False).count(), 0)
         self.assertEqual(Member.objects.count(), 3)  # never deleted
 
+    def test_inactive_is_archived_alumni_is_not(self):
+        run_sync([person(1), person(2, status="inactive"), person(3, status="alumni")])
+        self.assertIsNotNone(Member.objects.get(directory_id="p2").archived_at)
+        self.assertIsNone(Member.objects.get(directory_id="p3").archived_at)
+
     def test_role_account_skipped(self):
         c = run_sync([person(1), person(2)], roles={"u2@example.test": {"accountKind": "role"}})
         self.assertEqual((c["created"], c["skipped"]), (1, 1))

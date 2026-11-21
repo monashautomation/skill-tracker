@@ -324,3 +324,25 @@ class RoleRule(models.Model):
 
     class Meta:
         ordering = ["threshold_points"]
+
+
+class ApiKey(models.Model):
+    """Admin-issued API key for services. Only the sha256 hash is stored; the raw key is shown once."""
+
+    SCOPE_READ = "read"
+    SCOPE_WRITE = "write"
+    SCOPES = [(SCOPE_READ, "Read"), (SCOPE_WRITE, "Read + write")]
+
+    name = models.CharField(max_length=100)
+    key_hash = models.CharField(max_length=64, unique=True)
+    key_prefix = models.CharField(max_length=16)
+    scope = models.CharField(max_length=5, choices=SCOPES, default=SCOPE_READ)
+    created_by = models.ForeignKey(
+        Member, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.key_prefix}…)"
