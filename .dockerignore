@@ -1,0 +1,10 @@
+.git
+.github
+cli
+deploy
+argocd
+**/__pycache__
+**/*.pyc
+backend/db.sqlite3
+backend/.env
+backend/staticfiles

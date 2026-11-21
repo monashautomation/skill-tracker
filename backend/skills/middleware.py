@@ -18,6 +18,7 @@ import time
 from django.conf import settings
 from django.core import signing
 from django.http import JsonResponse
+from django.middleware.csrf import CsrfViewMiddleware
 
 from .models import Member
 
@@ -90,6 +91,35 @@ class ApiTokenMiddleware:
                 if not member:
                     return JsonResponse({"error": "unauthorized"}, status=401)
                 request.session_member = member
+        return self.get_response(request)
+
+
+class SiteCsrfMiddleware(CsrfViewMiddleware):
+    """CSRF for the website; /api/ is exempt (it authenticates by header tokens, not cookies)."""
+
+    def process_view(self, request, callback, callback_args, callback_kwargs):
+        if request.path.startswith("/api/"):
+            return None
+        return super().process_view(request, callback, callback_args, callback_kwargs)
+
+
+class SiteMemberMiddleware:
+    """Sets request.member (cookie-session login for the website) on every non-API request.
+
+    None when not logged in or the member has been archived.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request.member = None
+        if not request.path.startswith("/api/"):
+            member_id = request.session.get("member_id")
+            if member_id:
+                request.member = Member.objects.filter(
+                    pk=member_id, archived_at__isnull=True
+                ).first()
         return self.get_response(request)
 
 

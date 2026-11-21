@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: skills-migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: ghcr.io/monashautomation/skill-tracker:latest
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - configMapRef:
+                name: skills-web-config
+            - secretRef:
+                name: skills-web-secrets

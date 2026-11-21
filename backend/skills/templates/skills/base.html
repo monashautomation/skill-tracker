@@ -1,0 +1,48 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{% block title %}Skills{% endblock %} | Monash Automation</title>
+<link rel="preload" href="{% static 'skills/fonts/barlow-condensed-latin-500-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{% static 'skills/site.css' %}">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap top__in">
+    <a class="brand" href="{% url 'roster' %}"><img class="brand__logo" src="{% static 'skills/ma-logo.svg' %}" alt="Monash Automation" width="131" height="28"><span class="brand__name">Skills</span></a>
+    {% if request.member %}
+    <nav class="nav" aria-label="Main">
+      <a href="{% url 'roster' %}" {% if request.resolver_match.url_name == 'roster' %}aria-current="page"{% endif %}>People</a>
+      <a href="{% url 'skills_map' %}" {% if request.resolver_match.url_name == 'skills_map' %}aria-current="page"{% endif %}>Skills map</a>
+      <a href="{% url 'inductions' %}" {% if request.resolver_match.url_name == 'inductions' %}aria-current="page"{% endif %}>Inductions</a>
+    </nav>
+    <div class="me">
+      <a href="{% url 'profile' request.member.pk %}">{{ request.member.display_name|default:"My profile" }}</a>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="linkbtn">Sign out</button></form>
+    </div>
+    {% endif %}
+  </div>
+</header>
+<main id="main" class="wrap">
+  {% if messages %}
+  <ul class="msgs" role="status">
+    {% for m in messages %}<li class="msg msg--{{ m.level_tag }}">{{ m }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% if request.member.is_admin %}
+<footer class="foot">
+  <div class="wrap foot__in">
+    <span class="eyebrow">Admin</span>
+    <form method="post" action="{% url 'directory_sync_now' %}">{% csrf_token %}<button class="btn btn--ghost">Sync directory now</button></form>
+    <a href="/admin/">Django admin</a>
+  </div>
+</footer>
+{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

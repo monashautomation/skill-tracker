@@ -1,0 +1,33 @@
+{% extends "skills/base.html" %}
+{% block title %}Skills map{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <p class="eyebrow">Team balance</p>
+  <h1 class="display">Skills map</h1>
+  <p class="lede">Who can do what, and who wants to learn it. Highest level first.</p>
+</header>
+{% for g in groups %}
+<section class="cat" aria-labelledby="cat-{{ forloop.counter }}">
+  <h2 id="cat-{{ forloop.counter }}" class="eyebrow">{{ g.category }}</h2>
+  {% for r in g.rows %}
+  <article class="sk">
+    <h3 class="sk__name display">{{ r.skill.name }}</h3>
+    <div class="sk__col">
+      <p class="sk__h">Can do <b>{{ r.can|length }}</b></p>
+      <ul class="faces">
+        {% for lvl, m in r.can %}<li><a href="{% url 'profile' m.pk %}" title="{{ m.name }}, level {{ lvl }}">{% include "skills/_portrait.html" %}<span class="faces__lvl">{{ lvl }}</span><span class="sr">{{ m.name }}, level {{ lvl }}</span></a></li>{% empty %}<li class="muted">Nobody yet</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="sk__col sk__col--learn">
+      <p class="sk__h">Wants to learn <b>{{ r.learn|length }}</b></p>
+      <ul class="faces">
+        {% for m in r.learn %}<li><a href="{% url 'profile' m.pk %}" title="{{ m.name }}">{% include "skills/_portrait.html" %}<span class="sr">{{ m.name }}</span></a></li>{% empty %}<li class="muted">Nobody yet</li>{% endfor %}
+      </ul>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% empty %}
+<div class="empty"><p class="display">No skills recorded yet</p><p>As people add skills to their profiles, this page shows who can cover what. <a href="{% url 'profile' request.member.pk %}">Add yours</a>.</p></div>
+{% endfor %}
+{% endblock %}

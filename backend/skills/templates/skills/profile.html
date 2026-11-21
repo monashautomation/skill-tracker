@@ -1,0 +1,158 @@
+{% extends "skills/base.html" %}
+{% load static %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<section class="hero{% if p.archived_at %} hero--archived{% endif %}" aria-labelledby="who">
+  <div class="hero__panel" aria-hidden="true"></div>
+  <div class="hero__fig">{% with m=p %}{% include "skills/_portrait.html" %}{% endwith %}</div>
+  <div class="hero__body">
+    <img class="mark" src="{% static 'skills/ma-mark.svg' %}" alt="" width="40" height="40">
+    <p class="eyebrow">{{ p.primary }}{% if p.status_tag %} / {{ p.status_tag }}{% endif %}{% if p.archived_at %} / archived{% endif %}</p>
+    <h1 id="who" class="display hero__name">{{ p.name }}</h1>
+    {% if p.is_admin or p.is_editor %}
+    <p class="tags">
+      {% if p.is_admin %}<span class="tag">Admin</span>{% endif %}
+      {% if p.is_editor and not p.is_admin %}<span class="tag">Editor</span>{% endif %}
+    </p>
+    {% endif %}
+    <dl class="stats">
+      <div><dt>Points</dt><dd>{{ p.pts|floatformat:"-1" }}</dd></div>
+      <div><dt>Inductions</dt><dd>{{ p.n_ind }}</dd></div>
+      <div><dt>Skills</dt><dd>{{ p.n_skills }}</dd></div>
+      <div><dt>Lessons</dt><dd>{{ p.n_lessons }}</dd></div>
+    </dl>
+  </div>
+</section>
+
+<div class="cols">
+  <div class="col">
+    <section class="panel" aria-labelledby="h-graph">
+      <h2 id="h-graph" class="eyebrow">Skills graph</h2>
+      <svg class="radar" viewBox="-50 24 440 236" role="img" aria-label="Skill ratings: {% for l in radar.labels %}{{ l.text }} {{ l.value }} of 10{% if not forloop.last %}, {% endif %}{% endfor %}">
+        {% for ring in radar.rings %}<polygon class="radar__ring{% if radar.empty %} radar__ring--dash{% endif %}" points="{{ ring }}"/>{% endfor %}
+        {% for s in radar.spokes %}<line class="radar__spoke" x1="{{ radar.cx }}" y1="{{ radar.cy }}" x2="{{ s.x }}" y2="{{ s.y }}"/>{% endfor %}
+        {% if not radar.empty %}<polygon class="radar__shape" points="{{ radar.shape }}"/>{% endif %}
+        {% for l in radar.labels %}<text class="radar__label" x="{{ l.x }}" y="{{ l.y }}" text-anchor="{{ l.anchor }}">{{ l.text|upper }} <tspan class="radar__val">{{ l.value }}</tspan></text>{% endfor %}
+        {% if radar.empty %}<text class="radar__none" x="{{ radar.cx }}" y="{{ radar.cy|add:4 }}" text-anchor="middle">NOT RATED YET</text>{% endif %}
+      </svg>
+      {% if radar.empty %}<p class="muted">Leads and admins rate the six axes after working with someone.</p>{% endif %}
+      {% if can_ratings %}
+      <details class="fold"><summary>Set ratings</summary>
+        <form method="post" action="{% url 'ratings_save' p.pk %}" class="ratings">{% csrf_token %}
+          {% for key, label, val in axes %}
+          <label>{{ label }}<input type="number" name="{{ key }}" min="0" max="10" required value="{{ val|default:0 }}"></label>
+          {% endfor %}
+          <button class="btn btn--solid">Save ratings</button>
+        </form>
+      </details>
+      {% endif %}
+    </section>
+
+    <section class="panel" aria-labelledby="h-ind">
+      <h2 id="h-ind" class="eyebrow">Inductions</h2>
+      {% if inductions %}
+      <ul class="badges">
+        {% for i in inductions %}
+        <li class="badge badge--{{ i.status }}">{{ i.induction_type.name }}{% if i.status != "approved" %}<small>{{ i.get_status_display }}</small>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">No inductions yet.{% if can_request %} Request the ones you have completed in person and an admin will confirm them.{% endif %}</p>
+      {% endif %}
+      {% if can_request and available_types %}
+      <form method="post" action="{% url 'induction_request' %}" class="inline">{% csrf_token %}
+        <label>Request an induction
+          <select name="induction_type" required>{% for t in available_types %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}</select></label>
+        <button class="btn btn--ghost">Request</button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="panel" aria-labelledby="h-pts">
+      <h2 id="h-pts" class="eyebrow">Recent points</h2>
+      {% if recent_points %}
+      <ul class="ledger">{% for e in recent_points %}<li><span>{{ e.description|default:e.get_source_display }}</span><b>+{{ e.points|floatformat:"-1" }}</b></li>{% endfor %}</ul>
+      {% else %}<p class="muted">No points on the board yet. They arrive from bounties, lessons and engagement.</p>{% endif %}
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" aria-labelledby="h-skills">
+      <h2 id="h-skills" class="eyebrow">Skills</h2>
+      {% if items %}
+      <ul class="skills">
+        {% for s in items %}
+        <li class="skill">
+          <div class="skill__main">
+            <span class="skill__name">{{ s.skill.name }}</span>
+            {% if s.skill.category %}<span class="skill__cat">{{ s.skill.category }}</span>{% endif %}
+            {% if s.wants_to_learn %}<span class="want">Wants to learn</span>{% endif %}
+          </div>
+          <div class="skill__meta">
+            <span class="bar" role="img" aria-label="Level {{ s.level }} of 5">{% for n in "12345" %}<i{% if forloop.counter <= s.level %} class="on"{% endif %}></i>{% endfor %}</span>
+            <span class="skill__lvl">{{ s.level }}/5</span>
+            <span class="skill__src">{% if s.source == "api" %}via API{% else %}manual{% endif %}</span>
+            {% if can_skills %}
+            <button type="button" class="linkbtn js-edit" data-name="{{ s.skill.name }}" data-category="{{ s.skill.category }}" data-level="{{ s.level }}" data-want="{{ s.wants_to_learn|yesno:'1,0' }}">Edit</button>
+            <form method="post" action="{% url 'skill_remove' p.pk s.skill_id %}">{% csrf_token %}<button class="linkbtn">Remove</button></form>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="empty empty--in">
+        <p class="display">No skills listed yet</p>
+        <p>{% if own %}Start with one thing you can actually do, or something you want to learn. Leads use this to put people on the right projects.{% else %}{{ p.name }} hasn't added any skills.{% endif %}</p>
+        {% if can_skills %}<a class="btn btn--solid" href="#skill-form">{% if own %}Add your first skill{% else %}Add a skill{% endif %}</a>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if can_skills %}
+      <form id="skill-form" class="skillform" method="post" action="{% url 'skill_save' p.pk %}">{% csrf_token %}
+        <h3 class="eyebrow">{% if own %}Add or update a skill{% else %}Add or update a skill for {{ p.name }}{% endif %}</h3>
+        <div class="skillform__grid">
+          <label>Skill<input name="name" list="skill-names" required maxlength="100" autocomplete="off" placeholder="e.g. CAD"></label>
+          <label>Category<input name="category" list="skill-cats" maxlength="100" autocomplete="off" placeholder="e.g. Mechanical"></label>
+          <label>Level
+            <select name="level">{% for n, label in levels %}<option value="{{ n }}"{% if n == 1 %} selected{% endif %}>{{ n }} - {{ label }}</option>{% endfor %}</select></label>
+          <label class="check"><input type="checkbox" name="wants_to_learn"> Wants to learn</label>
+        </div>
+        <p class="hint">Level 0 with "wants to learn" ticked marks something you are curious about but haven't tried.</p>
+        <button class="btn btn--solid">Save skill</button>
+        <datalist id="skill-names">{% for s in catalog %}<option value="{{ s.name }}" label="{{ s.category }}">{% endfor %}</datalist>
+        <datalist id="skill-cats">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="panel" aria-labelledby="h-edit">
+      <h2 id="h-edit" class="eyebrow">Who can edit this profile</h2>
+      <ul class="rules">
+        <li><b>{{ p.name }}</b> can edit their own skill list.</li>
+        <li><b>Leads and executives</b> (any position containing {{ patterns }}) can set ratings and edit anyone's skills.</li>
+        <li><b>Directory admins</b> can do everything, including approving inductions.</li>
+      </ul>
+      <details class="fold"><summary>{{ editors.editors|length }} people with edit rights</summary>
+        <ul class="names">
+          {% for m in editors.editors %}<li><a href="{% url 'profile' m.pk %}">{{ m.display_name }}</a>{% if m.is_admin %} <span class="tag">Admin</span>{% else %} <span class="tag tag--quiet">Editor</span>{% endif %}</li>{% endfor %}
+        </ul>
+      </details>
+    </section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if can_skills %}
+<script>
+document.querySelectorAll('.js-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var f = document.getElementById('skill-form').elements;
+    f.name.value = b.dataset.name; f.category.value = b.dataset.category;
+    f.level.value = b.dataset.level; f.wants_to_learn.checked = b.dataset.want === '1';
+    f.name.scrollIntoView({block: 'center'}); f.name.focus();
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

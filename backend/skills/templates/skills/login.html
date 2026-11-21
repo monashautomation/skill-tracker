@@ -1,0 +1,10 @@
+{% extends "skills/base.html" %}
+{% load static %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="login">
+  <img class="login__logo" src="{% static 'skills/ma-logo.svg' %}" alt="Monash Automation" width="262" height="56">
+  <h1 class="display">Skill Tracker</h1>
+  <a class="btn btn--solid" href="{% url 'auth_login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Sign in with Monash Automation</a>
+</section>
+{% endblock %}

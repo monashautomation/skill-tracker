@@ -21,6 +21,8 @@ from .http import (
     require_admin,
     require_caller,
 )
+from . import perms
+from .directory import DirectoryError, sync_directory
 from .models import (
     ActionItem,
     EquipmentGroup,
@@ -29,9 +31,11 @@ from .models import (
     Lesson,
     LessonCompletion,
     Member,
+    MemberSkill,
     PointsEntry,
     QuizAttempt,
     RoleRule,
+    Skill,
     SkillRating,
 )
 from .services import (
@@ -40,6 +44,7 @@ from .services import (
     grade_quiz,
     points_total,
     record_quiz_attempt,
+    upsert_skill_items,
 )
 
 
@@ -52,6 +57,39 @@ def _member_payload(member: Member) -> dict:
         "is_admin": member.is_admin,
         "points_total": str(points_total(member)),
     }
+
+
+def resolve_member(ident: str) -> Member | None:
+    """Look a member up by discord_id, then directory_id, then email (archived included)."""
+    return (
+        Member.objects.filter(discord_id=ident).first()
+        or Member.objects.filter(directory_id=ident).first()
+        or Member.objects.filter(email__iexact=ident).first()
+    )
+
+
+def _archived_409():
+    return JsonResponse({"error": "member is archived"}, status=409)
+
+
+def _is_service(request) -> bool:
+    """True for a bare service-token call (no on-behalf-of member)."""
+    return not (getattr(request, "caller_member", None) or getattr(request, "session_member", None))
+
+
+def _skill_items_payload(member: Member) -> list:
+    return [
+        {
+            "skill_id": ms.skill_id,
+            "name": ms.skill.name,
+            "category": ms.skill.category,
+            "level": ms.level,
+            "wants_to_learn": ms.wants_to_learn,
+            "source": ms.source,
+            "updated_at": ms.updated_at.isoformat(),
+        }
+        for ms in member.skill_items.select_related("skill").order_by("skill__name")
+    ]
 
 
 def _rating_payload(rating: SkillRating | None) -> dict:
@@ -105,8 +143,8 @@ def upsert_member(request):
 
 
 @require_GET
-def get_member(request, discord_id: str):
-    member = Member.objects.filter(discord_id=discord_id).first()
+def get_member(request, ident: str):
+    member = resolve_member(ident)
     if not member:
         return JsonResponse({"error": "not found"}, status=404)
     completions = (
@@ -118,7 +156,12 @@ def get_member(request, discord_id: str):
     return JsonResponse(
         {
             **_member_payload(member),
+            "directory_id": member.directory_id,
+            "status": member.status,
+            "positions": member.positions,
+            "archived": member.archived_at is not None,
             "skills": _rating_payload(rating),
+            "skill_items": _skill_items_payload(member),
             "lessons_completed": [
                 {
                     "lesson_id": c.lesson_id,
@@ -142,10 +185,12 @@ def get_member(request, discord_id: str):
 
 
 @require_POST
-def award_points_view(request, discord_id: str):
-    member = Member.objects.filter(discord_id=discord_id).first()
+def award_points_view(request, ident: str):
+    member = resolve_member(ident)
     if not member:
         return JsonResponse({"error": "member not found"}, status=404)
+    if member.archived_at:
+        return _archived_409()
     body, err = parse_json_object_body(request)
     if err:
         return err
@@ -200,15 +245,19 @@ def leaderboard(request):
 
 
 @require_http_methods(["GET", "PUT"])
-def skill_rating(request, discord_id: str):
-    member = Member.objects.filter(discord_id=discord_id).first()
+def skill_rating(request, ident: str):
+    member = resolve_member(ident)
     if not member:
         return JsonResponse({"error": "member not found"}, status=404)
     if request.method == "GET":
         return JsonResponse(_rating_payload(getattr(member, "skill_rating", None)))
-    caller, err = require_admin(request)
+    caller, err = require_caller(request)
     if err:
         return err
+    if not perms.can_edit_ratings(caller, member):
+        return JsonResponse({"error": "editors only"}, status=403)
+    if member.archived_at:
+        return _archived_409()
     body, err = parse_json_object_body(request)
     if err:
         return err
@@ -226,6 +275,125 @@ def skill_rating(request, discord_id: str):
         rating.updated_by = caller
         rating.save(update_fields=[*updates, "updated_by"])
     return JsonResponse(_rating_payload(rating))
+
+
+# ----------------------------------------------- granular skills & people
+
+@require_GET
+def skills_catalog(request):
+    return JsonResponse({"skills": [
+        {"id": s.id, "name": s.name, "category": s.category} for s in Skill.objects.all()
+    ]})
+
+
+MAX_SKILL_ITEMS = 100
+
+
+@require_http_methods(["PUT"])
+def member_skill_items(request, ident: str):
+    """Upsert skills: {"skills": [{"name", "category"?, "level"? 0-5, "wants_to_learn"?}]}."""
+    member = resolve_member(ident)
+    if not member:
+        return JsonResponse({"error": "member not found"}, status=404)
+    actor = getattr(request, "caller_member", None) or getattr(request, "session_member", None)
+    if actor and not perms.can_edit_skills(actor, member):
+        return JsonResponse({"error": "forbidden"}, status=403)
+    if member.archived_at:
+        return _archived_409()
+    body, err = parse_json_object_body(request)
+    if err:
+        return err
+    raw = body.get("skills")
+    if not isinstance(raw, list) or not raw or len(raw) > MAX_SKILL_ITEMS:
+        return JsonResponse({"error": f"skills must be a list of 1-{MAX_SKILL_ITEMS} items"}, status=400)
+    items = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return JsonResponse({"error": "each skill must be an object"}, status=400)
+        name, err = clean_str(entry.get("name"), 100, field="name")
+        if not err and not name.strip():
+            err = "name required"
+        category, err2 = clean_str(entry.get("category"), 100, field="category")
+        item = {"name": (name or "").strip(), "category": (category or "").strip()}
+        if "level" in entry:
+            item["level"], err3 = clean_int(entry["level"], 0, 5, field="level")
+            err = err or err3
+        if "wants_to_learn" in entry:
+            if not isinstance(entry["wants_to_learn"], bool):
+                err = err or "wants_to_learn must be a boolean"
+            item["wants_to_learn"] = entry["wants_to_learn"]
+        if err or err2:
+            return JsonResponse({"error": err or err2}, status=400)
+        items.append(item)
+    upsert_skill_items(member, items, actor=actor,
+                       source=MemberSkill.SOURCE_MANUAL if request.session_member else MemberSkill.SOURCE_API)
+    return JsonResponse({"skill_items": _skill_items_payload(member)})
+
+
+@require_http_methods(["DELETE"])
+def member_skill_item_delete(request, ident: str, skill_id: int):
+    member = resolve_member(ident)
+    if not member:
+        return JsonResponse({"error": "member not found"}, status=404)
+    actor = getattr(request, "caller_member", None) or getattr(request, "session_member", None)
+    if actor and not perms.can_edit_skills(actor, member):
+        return JsonResponse({"error": "forbidden"}, status=403)
+    if member.archived_at:
+        return _archived_409()
+    deleted, _ = MemberSkill.objects.filter(member=member, skill_id=skill_id).delete()
+    if not deleted:
+        return JsonResponse({"error": "not found"}, status=404)
+    return JsonResponse({"deleted": True})
+
+
+@require_GET
+def people(request):
+    """Non-archived members for the directory page / bot (?archived=1 adds archived, admins only)."""
+    members = Member.objects.all()
+    if request.GET.get("archived") == "1":
+        if not _is_service(request):
+            caller, err = require_admin(request)
+            if err:
+                return err
+    else:
+        members = members.filter(archived_at__isnull=True)
+    approved = Induction.objects.filter(status=Induction.STATUS_APPROVED).select_related("induction_type")
+    members = members.select_related("skill_rating").prefetch_related(
+        Prefetch("inductions", queryset=approved, to_attr="approved_inductions"),
+        Prefetch("skill_items", queryset=MemberSkill.objects.select_related("skill").order_by("skill__name")),
+    ).order_by("display_name")
+    return JsonResponse({"people": [
+        {
+            "id": m.directory_id or m.discord_id,
+            "directory_id": m.directory_id,
+            "discord_id": m.discord_id,
+            "name": m.display_name or m.discord_username,
+            "avatar_url": m.avatar_url,
+            "positions": m.positions,
+            "status": m.status,
+            "archived": m.archived_at is not None,
+            "inductions": [i.induction_type.name for i in m.approved_inductions],
+            "skill_items": [
+                {"skill_id": ms.skill_id, "name": ms.skill.name, "category": ms.skill.category,
+                 "level": ms.level, "wants_to_learn": ms.wants_to_learn}
+                for ms in m.skill_items.all()
+            ],
+            "ratings": _rating_payload(getattr(m, "skill_rating", None)),
+        }
+        for m in members
+    ]})
+
+
+@require_POST
+def directory_sync(request):
+    if not _is_service(request):
+        _, err = require_admin(request)
+        if err:
+            return err
+    try:
+        return JsonResponse(sync_directory())
+    except DirectoryError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
 
 
 # -------------------------------------------------------------- training
@@ -596,13 +764,16 @@ def role_rules(request):
 
 
 @require_GET
-def member_quiz_attempts(request, discord_id: str):
+def member_quiz_attempts(request, ident: str):
     caller, err = require_caller(request)
     if err:
         return err
-    if caller.discord_id != discord_id and not caller.is_admin:
+    member = resolve_member(ident)
+    if not member:
+        return JsonResponse({"error": "member not found"}, status=404)
+    if caller.pk != member.pk and not caller.is_admin:
         return JsonResponse({"error": "forbidden"}, status=403)
-    attempts = QuizAttempt.objects.filter(member__discord_id=discord_id).select_related("lesson")[:50]
+    attempts = QuizAttempt.objects.filter(member=member).select_related("lesson")[:50]
     return JsonResponse(
         {
             "attempts": [

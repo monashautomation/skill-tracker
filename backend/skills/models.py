@@ -28,6 +28,12 @@ class Member(models.Model):
     is_admin = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     last_login_at = models.DateTimeField(null=True, blank=True)
+    # People Directory link: source of truth for who exists and their org roles.
+    directory_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    status = models.CharField(max_length=20, default="active")
+    positions = models.JSONField(default=list, blank=True)
+    # Set when removed from the directory; archived members are hidden, never deleted.
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return self.display_name or self.discord_username or str(self.discord_id)
@@ -74,6 +80,46 @@ class SkillRating(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} skills"
+
+
+class Skill(models.Model):
+    """Catalog entry for a granular skill (e.g. "CAD", "ROS"); names are unique case-insensitively."""
+
+    name = models.CharField(max_length=100, unique=True)
+    category = models.CharField(max_length=100, blank=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
+
+
+class MemberSkill(models.Model):
+    """A member's level in a skill (0 = no experience yet) and whether they want to grow it."""
+
+    SOURCE_MANUAL = "manual"
+    SOURCE_API = "api"
+
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="skill_items")
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name="member_skills")
+    level = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(5)]
+    )
+    wants_to_learn = models.BooleanField(default=False)
+    source = models.CharField(max_length=10, default=SOURCE_MANUAL)
+    updated_by = models.ForeignKey(
+        Member, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["member", "skill"], name="unique_member_skill")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} / {self.skill} ({self.level})"
 
 
 class PointsEntry(models.Model):

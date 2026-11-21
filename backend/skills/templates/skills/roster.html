@@ -1,0 +1,34 @@
+{% extends "skills/base.html" %}
+{% block title %}People{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <p class="eyebrow">The roster</p>
+  <h1 class="display">People</h1>
+</header>
+<form class="filters" method="get" role="search">
+  <label>Name<input type="search" name="q" value="{{ q }}" placeholder="Search by name"></label>
+  <label>Position
+    <select name="position"><option value="">Any</option>
+      {% for p in positions %}<option {% if p == position %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select></label>
+  <label>Skill
+    <select name="skill"><option value="">Any</option>
+      {% for s in skill_names %}<option {% if s == skill %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select></label>
+  <fieldset class="seg"><legend>Skill filter</legend>
+    <label><input type="radio" name="mode" value="can" {% if mode == "can" %}checked{% endif %}><span>Can do</span></label>
+    <label><input type="radio" name="mode" value="learn" {% if mode == "learn" %}checked{% endif %}><span>Wants to learn</span></label>
+  </fieldset>
+  {% if request.member.is_admin %}
+  <label class="check"><input type="checkbox" name="archived" value="1" {% if show_archived %}checked{% endif %}> Show archived</label>
+  {% endif %}
+  <button class="btn btn--solid">Apply</button>
+  {% if filtered or show_archived %}<a class="linkbtn" href="{% url 'roster' %}">Clear</a>{% endif %}
+</form>
+<p class="count">{{ people|length }} of {{ total }} people</p>
+{% if people %}
+<div class="grid">{% for m in people %}{% include "skills/_card.html" %}{% endfor %}</div>
+{% else %}
+<div class="empty"><p class="display">No one matches</p><p>Try a different name, position or skill, or <a href="{% url 'roster' %}">clear the filters</a>.</p></div>
+{% endif %}
+{% endblock %}
