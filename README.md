@@ -14,9 +14,15 @@ action-item points.
 - Backend: Django 6 (SQLite for dev, Postgres in prod)
 - CLI: `mastcli` (Rust, in `cli/`) — same house style as `maticket`/`maims`
 - Auth: shared bearer token (`SKILL_TRACKER_TOKEN` env, or `backend/.token`
-  file locally) + `X-Caller-Member: <discord_id>` for on-behalf-of calls;
-  browser sessions via Discord OAuth (`/api/auth/discord/`) issue signed
-  session tokens for the training site
+  file locally, full access) + `X-Caller-Member: <discord_id>` for on-behalf-of
+  calls; admin-issued API keys (`stk_...`, created at `/api-keys/`, stored
+  hashed, shown once) sent as `X-API-Key: <key>` or `Authorization: Bearer <key>`
+  with `read` (GET only, else 403) or `write` scope, and they honour
+  `X-Caller-Member` too; browser sessions via Discord OAuth
+  (`/api/auth/discord/`) issue signed session tokens for the training site.
+  Checked in that order, else 401. The admin page `/api-keys/` also holds the
+  API reference.
+- Every `/api/...` path is also served at `/api/v1/...`.
 
 ## API
 
@@ -28,6 +34,7 @@ action-item points.
 | POST | `/api/members/<discord_id>/points/` | award points (bounty / engagement / lesson / action_item / manual), `external_ref` dedup |
 | PUT | `/api/members/<discord_id>/skills/` | set 6-axis skill ratings (admin) |
 | GET | `/api/members/<discord_id>/quiz-attempts/` | quiz attempt history |
+| GET | `/api/people/` | non-archived people; filters `name`, `email`, `discordId`, `directoryId`, `position`, `skill`, `wantsToLearn`, `status`; `fields=a,b` trims the response |
 | GET | `/api/leaderboard/` | points ranking |
 | GET | `/api/catalog/` | equipment groups + lessons |
 | GET | `/api/lessons/<id>/` | lesson detail (markdown body, quiz meta) |
@@ -48,8 +55,9 @@ Django admin at `/admin/` for manual content management.
 ## Website / directory / Authentik
 
 The website logs members in with Authentik (OIDC) and reads who exists, and their
-org positions, from the People Directory. Members removed from the directory are
-archived (hidden, never deleted).
+org positions, from the People Directory. Members removed from the directory, or whose
+directory status is `former` or `inactive`, are archived (hidden, never deleted) and
+come back automatically if they return.
 
 | Env var | Purpose |
 |---|---|
@@ -66,7 +74,7 @@ archived (hidden, never deleted).
 
 Website routes: `/login/`, `/auth/login/`, `/auth/callback/`, `/auth/logout/`.
 New API: `GET /api/skills/`, `PUT /api/members/<ident>/skill-items/`,
-`DELETE /api/members/<ident>/skill-items/<skill_id>/`, `GET /api/people/`,
+`DELETE /api/members/<ident>/skill-items/<skill_id>/`, `GET /api/people/` (filters and `fields=`, see table),
 `POST /api/directory/sync/`. `<ident>` is a Discord id, directory id or email.
 
 ## CLI (`mastcli`)

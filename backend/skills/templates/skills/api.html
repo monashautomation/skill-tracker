@@ -1,0 +1,201 @@
+{% extends "skills/base.html" %}
+{% load static %}
+{% block title %}API keys{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'skills/api.css' %}">
+<header class="pagehead">
+  <p class="eyebrow">Admin</p>
+  <h1 class="display">API</h1>
+</header>
+
+<div class="apik">
+<section class="panel" aria-labelledby="h-k">
+  <h2 id="h-k" class="eyebrow">API keys</h2>
+  <p class="muted">Keys let other services call the API. Read keys can only make GET requests; read + write keys can call everything. Keys are stored hashed, so a lost key can't be recovered: revoke it and make a new one.</p>
+
+  {% if new_key %}
+  <div class="panel newkey" role="status">
+    <b>Copy this key now. It won't be shown again.</b>
+    <code>{{ new_key }}</code>
+  </div>
+  {% endif %}
+
+  <form class="create" method="post" action="{% url 'api_key_create' %}">{% csrf_token %}
+    <label>Name<input name="name" maxlength="100" required placeholder="e.g. Ticketing service"></label>
+    <label>Scope<select name="scope"><option value="read">Read</option><option value="write">Read + write</option></select></label>
+    <button class="btn btn--solid">Create key</button>
+  </form>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Name</th><th>Key</th><th>Scope</th><th>Created by</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td>{{ k.name }}</td>
+        <td><code>{{ k.key_prefix }}…</code></td>
+        <td>{{ k.get_scope_display }}</td>
+        <td>{{ k.created_by|default:"-" }}</td>
+        <td>{{ k.created_at|date:"j M Y" }}</td>
+        <td>{% if k.last_used_at %}{{ k.last_used_at|date:"j M Y H:i" }}{% else %}Never{% endif %}</td>
+        <td>{% if k.revoked_at %}Revoked{% else %}Active{% endif %}</td>
+        <td>{% if not k.revoked_at %}
+          <form method="post" action="{% url 'api_key_revoke' k.pk %}" onsubmit="return confirm('Revoke this key? Anything using it will stop working.')">{% csrf_token %}<button class="btn btn--ghost">Revoke</button></form>
+        {% endif %}</td>
+      </tr>
+    {% empty %}<tr><td colspan="8" class="muted">No API keys yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="docs" aria-labelledby="h-d">
+  <h2 id="h-d" class="eyebrow">Documentation</h2>
+  <div class="ep">
+    <p>Base URL <code>https://skills.monashautomation.com/api/v1/</code> (the same API is also at <code>/api/</code>). All bodies and responses are JSON.</p>
+    <p>Send your key as <code>X-API-Key: &lt;key&gt;</code> or <code>Authorization: Bearer &lt;key&gt;</code>. A missing, unknown or revoked key gets <code>401</code>. Keys created with the <b>Read</b> scope may only make GET requests; any other method returns <code>403 {"error": "this key is read-only"}</code>. <b>Read + write</b> keys can call every endpoint.</p>
+    <p>A key acts as a trusted service. Endpoints that act as a person (completing lessons, requesting inductions, admin-only changes) need <code>X-Caller-Member: &lt;discord id&gt;</code> to say who; that member's permissions apply. Anywhere a path says <code>{member}</code> you can use a Discord ID, directory ID or email.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/leaderboard/</pre>
+  </div>
+
+  <h3>People</h3>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/people/</code><i>scope: read</i></div>
+    <p>Everyone who isn't archived, with skills, inductions and ratings. Optional filters (combine freely): <code>name</code> (contains), <code>email</code> (exact), <code>discordId</code>, <code>directoryId</code>, <code>position</code> (contains), <code>skill</code> (skill name contains, level above 0), <code>wantsToLearn</code> (skill name contains), <code>status</code>. <code>fields=id,name</code> returns only those keys; an unknown field is a <code>400</code> listing the valid ones. <code>archived=1</code> adds archived people (admin).</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" \
+  "https://skills.monashautomation.com/api/v1/people/?skill=cad&amp;fields=id,name"</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/members/</code><i>scope: write</i></div>
+    <p>Create or update a member by <code>discord_id</code>. Body: <code>discord_id</code>, <code>email</code>, <code>display_name</code>.</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" -H "Content-Type: application/json" \
+  -d '{"discord_id":"111","email":"jane@example.com","display_name":"Jane"}' \
+  https://skills.monashautomation.com/api/v1/members/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/members/{member}/</code><i>scope: read</i></div>
+    <p>One member's profile: skills, lessons, inductions and points.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/members/111/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/members/{member}/quiz-attempts/</code><i>scope: read</i></div>
+    <p>Quiz attempt history. Needs <code>X-Caller-Member</code>: the member themself or an admin.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" \
+  https://skills.monashautomation.com/api/v1/members/111/quiz-attempts/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/members/{member}/points/</code><i>scope: write</i></div>
+    <p>Award points. Body: <code>points</code> (positive), <code>source</code> (bounty, engagement, lesson, action_item, manual), <code>description</code>, optional <code>external_ref</code> (repeat calls with the same ref award once).</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" -H "Content-Type: application/json" \
+  -d '{"points":50,"source":"bounty","external_ref":"bounty:42"}' \
+  https://skills.monashautomation.com/api/v1/members/111/points/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b> <b>PUT</b><code>/api/v1/members/{member}/skills/</code><i>scope: read / write</i></div>
+    <p>GET returns the 6-axis ratings. PUT sets them (each 0 to 10: leadership, engineering, software, electronics, project_mgmt, communication). PUT needs <code>X-Caller-Member</code> of an editor.</p>
+<pre>curl -X PUT -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" -H "Content-Type: application/json" \
+  -d '{"software":7,"engineering":5}' https://skills.monashautomation.com/api/v1/members/222/skills/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>PUT</b><code>/api/v1/members/{member}/skill-items/</code><i>scope: write</i></div>
+    <p>Upsert skills: <code>{"skills": [{"name", "category"?, "level"? 0-5, "wants_to_learn"?}]}</code> (1 to 100). With <code>X-Caller-Member</code>, only that member's own profile or an editor may be changed.</p>
+<pre>curl -X PUT -H "X-API-Key: stk_your_key_here" -H "Content-Type: application/json" \
+  -d '{"skills":[{"name":"CAD","level":3}]}' \
+  https://skills.monashautomation.com/api/v1/members/111/skill-items/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>DELETE</b><code>/api/v1/members/{member}/skill-items/{skill_id}/</code><i>scope: write</i></div>
+    <p>Remove one skill from a member.</p>
+<pre>curl -X DELETE -H "X-API-Key: stk_your_key_here" \
+  https://skills.monashautomation.com/api/v1/members/111/skill-items/7/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/skills/</code><i>scope: read</i></div>
+    <p>The skill catalogue (id, name, category).</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/skills/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/leaderboard/</code><i>scope: read</i></div>
+    <p>Top 25 by points.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/leaderboard/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/directory/sync/</code><i>scope: write</i></div>
+    <p>Sync members from the People Directory now. Returns counts of created, updated, archived and restored.</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/directory/sync/</pre>
+  </div>
+
+  <h3>Training</h3>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/catalog/</code><i>scope: read</i></div>
+    <p>Equipment groups and their published lessons.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/catalog/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/lessons/{id}/</code><i>scope: read</i></div>
+    <p>Lesson detail: markdown body and quiz info.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/lessons/1/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/lessons/{id}/quiz/</code><i>scope: read</i></div>
+    <p>Quiz questions. Correct answers are never sent.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/lessons/1/quiz/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/lessons/{id}/quiz/attempt/</code><i>scope: write</i></div>
+    <p>Grade a quiz on the server and record the attempt. Body: <code>answers</code>, one option index per question. Needs <code>X-Caller-Member</code>.</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" -H "Content-Type: application/json" \
+  -d '{"answers":[0,1,0]}' https://skills.monashautomation.com/api/v1/lessons/1/quiz/attempt/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/lessons/{id}/complete/</code><i>scope: write</i></div>
+    <p>Complete a lesson for the caller. Enforces the induction gate and quiz pass, then awards the lesson's points once. Needs <code>X-Caller-Member</code>.</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" \
+  https://skills.monashautomation.com/api/v1/lessons/1/complete/</pre>
+  </div>
+
+  <h3>Inductions</h3>
+  <div class="ep">
+    <div class="ep__head"><b>POST</b><code>/api/v1/inductions/</code><i>scope: write</i></div>
+    <p>Request a physical induction for the caller. Body: <code>induction_type_id</code>. Needs <code>X-Caller-Member</code>.</p>
+<pre>curl -X POST -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" -H "Content-Type: application/json" \
+  -d '{"induction_type_id":1}' https://skills.monashautomation.com/api/v1/inductions/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/inductions/list/</code><i>scope: read</i></div>
+    <p>The caller's inductions (admins see everyone's). Needs <code>X-Caller-Member</code>.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" https://skills.monashautomation.com/api/v1/inductions/list/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>PATCH</b><code>/api/v1/inductions/{id}/review/</code><i>scope: write</i></div>
+    <p>Approve or reject. Body: <code>decision</code> (approved or rejected), optional <code>notes</code>. Needs <code>X-Caller-Member</code> of an admin.</p>
+<pre>curl -X PATCH -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" -H "Content-Type: application/json" \
+  -d '{"decision":"approved"}' https://skills.monashautomation.com/api/v1/inductions/5/review/</pre>
+  </div>
+
+  <h3>Action items and roles</h3>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b> <b>POST</b><code>/api/v1/action-items/</code><i>scope: read / write</i></div>
+    <p>GET lists meeting action items (<code>?status=open</code> or <code>done</code>). POST creates one: <code>title</code>, optional <code>due_date</code> (YYYY-MM-DD), <code>member_discord_id</code>. Needs <code>X-Caller-Member</code>.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" \
+  "https://skills.monashautomation.com/api/v1/action-items/?status=open"</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>PATCH</b><code>/api/v1/action-items/{id}/</code><i>scope: write</i></div>
+    <p>Mark done with <code>{"done": true}</code>; awards its points once. Needs <code>X-Caller-Member</code>: the assignee or an admin.</p>
+<pre>curl -X PATCH -H "X-API-Key: stk_your_key_here" -H "X-Caller-Member: 111" -H "Content-Type: application/json" \
+  -d '{"done":true}' https://skills.monashautomation.com/api/v1/action-items/3/</pre>
+  </div>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b> <b>POST</b><code>/api/v1/role-rules/</code><i>scope: read / write</i></div>
+    <p>Points thresholds that map to Discord roles. POST (admin, via <code>X-Caller-Member</code>) adds one: <code>discord_role_id</code>, <code>threshold_points</code>, optional <code>discord_role_name</code>.</p>
+<pre>curl -H "X-API-Key: stk_your_key_here" https://skills.monashautomation.com/api/v1/role-rules/</pre>
+  </div>
+
+  <h3>Open endpoints</h3>
+  <div class="ep">
+    <div class="ep__head"><b>GET</b><code>/api/v1/health/</code><i>no key needed</i></div>
+    <p>Liveness check. The Discord login flow under <code>/api/auth/</code> and <code>GET /api/auth/whoami/</code> (resolves a browser session token) are also open.</p>
+<pre>curl https://skills.monashautomation.com/api/v1/health/</pre>
+  </div>
+</section>
+</div>
+{% endblock %}
