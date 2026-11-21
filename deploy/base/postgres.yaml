@@ -94,8 +94,10 @@ spec:
                                   "-c",
                                   'pg_isready -h /var/run/postgresql -U "$POSTGRES_USER"',
                               ]
+                      # first-time initdb on the NFS volume took ~11 min; a kill mid-init leaves a
+                      # cluster with no database and no remote-access rule, so allow 30 min
                       periodSeconds: 10
-                      failureThreshold: 60
+                      failureThreshold: 180
                   resources:
                       requests:
                           cpu: 100m
