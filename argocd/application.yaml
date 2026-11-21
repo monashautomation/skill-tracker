@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/monashautomation/skill-tracker.git
+    repoURL: git@github.com:monashautomation/skill-tracker.git
     targetRevision: main
     path: deploy/overlays/prod
   destination:
