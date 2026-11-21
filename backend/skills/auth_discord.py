@@ -103,7 +103,13 @@ def discord_callback(request):
     if not discord_id:
         return JsonResponse({"error": "no user id from Discord"}, status=502)
 
-    member, _ = Member.objects.get_or_create(discord_id=discord_id)
+    # Only known, active members get a session (audit SKL-1). Members arrive via the
+    # directory sync; env-listed admins may bootstrap themselves.
+    member = Member.objects.filter(discord_id=discord_id).first()
+    if member is None and discord_id in _admin_ids():
+        member = Member.objects.create(discord_id=discord_id)
+    if member is None or member.archived_at is not None:
+        return JsonResponse({"error": "not an active Monash Automation member"}, status=403)
     member.discord_username = user.get("username", member.discord_username)
     member.display_name = user.get("global_name") or member.display_name or user.get("username", "")
     if user.get("avatar"):

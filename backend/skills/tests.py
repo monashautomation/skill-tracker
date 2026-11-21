@@ -279,11 +279,9 @@ class ApiTests(TestCase):
 
     # ---- discord oauth ----
 
-    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
-    def test_oauth_callback_creates_member(self):
+    def _oauth_callback(self, fake_user):
         import json as _json
         from unittest.mock import patch
-        fake_user = {"id": "555", "username": "newbie", "global_name": "Newbie", "avatar": None}
         with patch("skills.auth_discord.urllib.request.urlopen") as mock_open:
             mock_open.return_value.__enter__.return_value.read.side_effect = [
                 b'{"access_token": "at"}',
@@ -294,10 +292,19 @@ class ApiTests(TestCase):
             state = "abc123"
             signed = signing.TimestampSigner(salt=STATE_SALT).sign(state)
             self.client.cookies["oauth_state"] = signed
-            r = self.client.get(f"/api/auth/discord/callback/?code=c&state={state}")
+            return self.client.get(f"/api/auth/discord/callback/?code=c&state={state}")
+
+    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
+    def test_oauth_callback_known_member_gets_token(self):
+        r = self._oauth_callback({"id": "111", "username": "test", "global_name": "Test", "avatar": None})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(Member.objects.filter(discord_id="555").count(), 1)
         self.assertIn("token", r.json())
+
+    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
+    def test_oauth_callback_rejects_unknown_account(self):
+        r = self._oauth_callback({"id": "555", "username": "newbie", "global_name": "Newbie", "avatar": None})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(Member.objects.filter(discord_id="555").exists())
 
     def test_oauth_login_not_configured(self):
         r = self.client.get("/api/auth/discord/login/")
@@ -329,3 +336,51 @@ class ServiceTests(TestCase):
                                    earned_on="2026-10-01")
         rule = role_for_member(self.member)
         self.assertEqual(rule.discord_role_name, "One")
+
+
+@override_settings(SKILL_TRACKER_TOKEN=TEST_TOKEN, DISCORD_ADMIN_IDS="999")
+class SecurityAuditTests(TestCase):
+    """Regression tests for the 2026-11 security audit (SKL-1, SKL-3, SKL-4, SKL-6)."""
+
+    def setUp(self):
+        self.member = Member.objects.create(discord_id="111", display_name="M", email="m@example.test")
+        self.victim = Member.objects.create(discord_id="222", display_name="V", email="v@example.test")
+        self.admin = Member.objects.create(discord_id="999", display_name="A", is_admin=True)
+
+    def session(self, member):
+        return {"HTTP_X_AUTH_TOKEN": issue_session_token(member)}
+
+    def test_session_member_cannot_award_points(self):
+        r = self.client.post("/api/members/222/points/", {"points": "9999"},
+                             content_type="application/json", **self.session(self.member))
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(points_total(self.victim), 0)
+
+    def test_service_can_award_points(self):
+        r = self.client.post("/api/members/222/points/", {"points": "5", "description": "x"},
+                             content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {TEST_TOKEN}")
+        self.assertIn(r.status_code, (200, 201))
+
+    def test_session_member_cannot_overwrite_email(self):
+        r = self.client.post("/api/members/", {"discord_id": "222", "email": "attacker@example.test"},
+                             content_type="application/json", **self.session(self.member))
+        self.assertEqual(r.status_code, 403)
+        self.victim.refresh_from_db()
+        self.assertEqual(self.victim.email, "v@example.test")
+
+    def test_admin_session_can_upsert(self):
+        r = self.client.post("/api/members/", {"discord_id": "333", "display_name": "New"},
+                             content_type="application/json", **self.session(self.admin))
+        self.assertIn(r.status_code, (200, 201))
+
+    def test_member_cannot_attach_points_to_action_item(self):
+        r = self.client.post("/api/action-items/", {"title": "t", "points": "9999"},
+                             content_type="application/json", **self.session(self.member))
+        self.assertEqual(r.status_code, 403)
+
+    def test_archived_member_session_rejected(self):
+        from django.utils import timezone
+        token = issue_session_token(self.member)
+        Member.objects.filter(pk=self.member.pk).update(archived_at=timezone.now())
+        r = self.client.get("/api/members/111/", HTTP_X_AUTH_TOKEN=token)
+        self.assertEqual(r.status_code, 401)

@@ -77,6 +77,19 @@ def _is_service(request) -> bool:
     return not (getattr(request, "caller_member", None) or getattr(request, "session_member", None))
 
 
+def _require_service_or_admin(request):
+    """403 unless this is a service call (shared token / API key with no member
+    on whose behalf it acts) or the acting member is an admin. Session tokens from
+    Discord login and on-behalf-of members are not enough to write member identity
+    or award points."""
+    if _is_service(request):
+        return None
+    actor = getattr(request, "caller_member", None) or getattr(request, "session_member", None)
+    if actor and actor.is_admin:
+        return None
+    return JsonResponse({"error": "admin or service access required"}, status=403)
+
+
 def _skill_items_payload(member: Member) -> list:
     return [
         {
@@ -118,6 +131,10 @@ def health(request):
 
 @require_POST
 def upsert_member(request):
+    # Email is the website-login key, so only services (directory sync) and admins
+    # may set it (audit SKL-6).
+    if (denied := _require_service_or_admin(request)):
+        return denied
     body, err = parse_json_object_body(request)
     if err:
         return err
@@ -186,6 +203,9 @@ def get_member(request, ident: str):
 
 @require_POST
 def award_points_view(request, ident: str):
+    # Points drive Discord role upgrades: services and admins only (audit SKL-4).
+    if (denied := _require_service_or_admin(request)):
+        return denied
     member = resolve_member(ident)
     if not member:
         return JsonResponse({"error": "member not found"}, status=404)
@@ -716,6 +736,10 @@ def action_items(request):
             return JsonResponse({"error": "member not found"}, status=404)
     points = None
     if body.get("points") is not None:
+        # Members could otherwise self-assign an item worth any points and tick it
+        # off (audit SKL-3). Only admins attach points.
+        if not caller.is_admin:
+            return JsonResponse({"error": "only admins can set points on action items"}, status=403)
         points, err = clean_points(body.get("points"))
         if err:
             return JsonResponse({"error": err}, status=400)

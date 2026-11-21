@@ -42,7 +42,8 @@ def resolve_session_token(token: str) -> Member | None:
         )
     except signing.BadSignature:
         return None
-    return Member.objects.filter(pk=member_id).first()
+    # Archived members' outstanding tokens stop working immediately (audit SKL-1).
+    return Member.objects.filter(pk=member_id, archived_at__isnull=True).first()
 
 
 class ApiTokenMiddleware:
