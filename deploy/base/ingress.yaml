@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: skills-web
+    annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        argocd.argoproj.io/sync-wave: "3"
+spec:
+    ingressClassName: traefik
+    tls:
+        - hosts:
+              - skills.monashautomation.com
+          secretName: skills-web-tls
+    rules:
+        - host: skills.monashautomation.com
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: skills-web
+                            port:
+                                number: 80

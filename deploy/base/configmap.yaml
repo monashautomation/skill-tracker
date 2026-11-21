@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skills-web-config
+data:
+  DJANGO_ALLOWED_HOSTS: "skills.monashautomation.com"
+  DJANGO_DEBUG: "false"
+  SITE_URL: "https://skills.monashautomation.com"
+  AUTHENTIK_ISSUER: "https://auth.monashautomation.com/application/o/skills/"
+  DIRECTORY_URL: "https://directory.monashautomation.com"
+  SKILLS_EDITOR_POSITIONS: "Lead,Chief,Executive,Manager"

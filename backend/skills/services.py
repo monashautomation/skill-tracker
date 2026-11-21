@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import LessonCompletion, PointsEntry, QuizAttempt, RoleRule
+from .models import LessonCompletion, MemberSkill, PointsEntry, QuizAttempt, RoleRule, Skill
 
 
 def points_total(member) -> Decimal:
@@ -71,3 +71,26 @@ def role_for_member(member):
         .order_by("-threshold_points")
         .first()
     )
+
+
+def upsert_skill_items(member, items, *, actor=None, source=MemberSkill.SOURCE_MANUAL):
+    """Upsert validated [{name, category, level?, wants_to_learn?}] onto a member.
+
+    Catalog names are deduped case-insensitively; only the fields present in an
+    item are changed on an existing row. Returns the MemberSkill rows.
+    """
+    rows = []
+    for item in items:
+        skill = Skill.objects.filter(name__iexact=item["name"]).first()
+        if not skill:
+            skill = Skill.objects.create(name=item["name"], category=item.get("category", ""))
+        elif item.get("category") and not skill.category:
+            skill.category = item["category"]
+            skill.save(update_fields=["category"])
+        fields = {k: item[k] for k in ("level", "wants_to_learn") if k in item}
+        row, _ = MemberSkill.objects.update_or_create(
+            member=member, skill=skill,
+            defaults={**fields, "source": source, "updated_by": actor},
+        )
+        rows.append(row)
+    return rows

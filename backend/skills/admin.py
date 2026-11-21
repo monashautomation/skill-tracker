@@ -8,10 +8,12 @@ from .models import (
     Lesson,
     LessonCompletion,
     Member,
+    MemberSkill,
     PointsEntry,
     Quiz,
     QuizAttempt,
     RoleRule,
+    Skill,
     SkillRating,
 )
 
@@ -20,7 +22,7 @@ from .models import (
 class MemberAdmin(admin.ModelAdmin):
     list_display = ("discord_id", "display_name", "discord_username", "is_admin", "last_login_at")
     search_fields = ("discord_id", "discord_username", "display_name", "email")
-    list_filter = ("is_admin",)
+    list_filter = ("is_admin", "status")
 
 
 @admin.register(SkillRating)
@@ -84,3 +86,6 @@ class RoleRuleAdmin(admin.ModelAdmin):
 @admin.register(LessonCompletion)
 class LessonCompletionAdmin(admin.ModelAdmin):
     list_display = ("member", "lesson", "completed_at", "points_awarded")
+
+
+admin.site.register([Skill, MemberSkill])

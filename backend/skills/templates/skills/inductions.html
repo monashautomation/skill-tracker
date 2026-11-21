@@ -1,0 +1,47 @@
+{% extends "skills/base.html" %}
+{% block title %}Inductions{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <p class="eyebrow">{% if request.member.is_admin %}Review queue{% else %}Your inductions{% endif %}</p>
+  <h1 class="display">Inductions</h1>
+</header>
+
+{% if request.member.is_admin %}
+<section class="panel" aria-labelledby="h-q">
+  <h2 id="h-q" class="eyebrow">Pending requests <b>{{ pending|length }}</b></h2>
+  {% for i in pending %}
+  <form class="review" method="post" action="{% url 'induction_review' i.pk %}">{% csrf_token %}
+    <div class="review__who"><a href="{% url 'profile' i.member.pk %}">{{ i.member }}</a><span class="badge badge--pending">{{ i.induction_type.name }}</span><small>{{ i.submitted_at|date:"j M Y" }}</small></div>
+    <label class="review__note"><span class="sr">Note for {{ i.member }}</span><input name="notes" maxlength="2000" placeholder="Optional note"></label>
+    <div class="review__act">
+      <button class="btn btn--solid" name="decision" value="approved">Approve</button>
+      <button class="btn btn--ghost" name="decision" value="rejected">Reject</button>
+    </div>
+  </form>
+  {% empty %}<p class="muted">Nothing waiting. New requests show up here.</p>{% endfor %}
+</section>
+{% if reviewed %}
+<section class="panel" aria-labelledby="h-r">
+  <h2 id="h-r" class="eyebrow">Recently reviewed</h2>
+  <ul class="ledger">
+    {% for i in reviewed %}<li><span><a href="{% url 'profile' i.member.pk %}">{{ i.member }}</a>, {{ i.induction_type.name }}{% if i.notes %} <em class="muted">({{ i.notes }})</em>{% endif %}</span><b>{{ i.get_status_display }}</b></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel" aria-labelledby="h-m">
+  <h2 id="h-m" class="eyebrow">{% if request.member.is_admin %}My requests{% else %}My requests and status{% endif %}</h2>
+  {% for i in mine %}
+  <p class="myind"><span class="badge badge--{{ i.status }}">{{ i.induction_type.name }}</span> <b>{{ i.get_status_display }}</b>{% if i.notes %} <span class="muted">{{ i.notes }}</span>{% endif %}</p>
+  {% empty %}<p class="muted">You haven't requested any inductions yet.</p>{% endfor %}
+  {% if available_types %}
+  <form method="post" action="{% url 'induction_request' %}" class="inline">{% csrf_token %}
+    <input type="hidden" name="back" value="inductions">
+    <label>Request an induction
+      <select name="induction_type" required>{% for t in available_types %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}</select></label>
+    <button class="btn btn--ghost">Request</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

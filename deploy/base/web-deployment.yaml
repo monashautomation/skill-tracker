@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skills-web
+  labels:
+    app: skills-web
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 4
+  selector:
+    matchLabels:
+      app: skills-web
+  template:
+    metadata:
+      labels:
+        app: skills-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: web
+          image: ghcr.io/monashautomation/skill-tracker:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: skills-web-config
+            - secretRef:
+                name: skills-web-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: skills.monashautomation.com
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: skills.monashautomation.com
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skills-web
+spec:
+  selector:
+    app: skills-web
+  ports:
+    - port: 80
+      targetPort: 8000

@@ -1,0 +1,12 @@
+<a class="card{% if m.archived_at %} card--archived{% endif %}" href="{% url 'profile' m.pk %}">
+  <div class="card__fig">{% include "skills/_portrait.html" %}</div>
+  <div class="card__body">
+    <p class="eyebrow">{{ m.primary }}{% if m.status_tag %} / {{ m.status_tag }}{% endif %}{% if m.archived_at %} / archived{% endif %}</p>
+    <h2 class="display card__name">{{ m.name }}</h2>
+    <dl class="stats stats--sm">
+      <div><dt>Points</dt><dd>{{ m.pts|floatformat:"-1" }}</dd></div>
+      <div><dt>Skills</dt><dd>{{ m.n_skills }}</dd></div>
+      <div><dt>Inducted</dt><dd>{{ m.n_ind }}</dd></div>
+    </dl>
+  </div>
+</a>
