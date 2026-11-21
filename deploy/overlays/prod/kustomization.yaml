@@ -6,7 +6,7 @@ resources:
 images:
 - name: ghcr.io/monashautomation/skill-tracker
   newName: ghcr.io/monashautomation/skill-tracker
-  newTag: latest
+  newTag: sha-962ffa4cac3f33ff5f6dddbe0fb660cceccc6e2b
 replicas:
 - count: 2
   name: skills-web
