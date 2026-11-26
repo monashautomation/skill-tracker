@@ -159,6 +159,41 @@ class PointsEntry(models.Model):
         ordering = ["-earned_on"]
 
 
+class PointsClaim(models.Model):
+    """Points a member says they earned, waiting for leadership to approve.
+
+    Approval creates the PointsEntry; nothing counts towards totals before that."""
+
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="points_claims")
+    points = models.DecimalField(max_digits=8, decimal_places=2)
+    description = models.CharField(max_length=300)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        Member, null=True, blank=True, on_delete=models.SET_NULL, related_name="reviewed_points_claims"
+    )
+    review_note = models.CharField(max_length=300, blank=True)
+    entry = models.OneToOneField(
+        "PointsEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="claim"
+    )
+
+    def __str__(self) -> str:
+        return f"{self.member} claims {self.points} ({self.status})"
+
+    class Meta:
+        ordering = ["-submitted_at"]
+
+
 class InductionType(models.Model):
     """Catalog of physical inductions (mirrors Notion 'Inductions', e.g. D&B, Makerspace)."""
 

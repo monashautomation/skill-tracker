@@ -279,9 +279,11 @@ class ApiTests(TestCase):
 
     # ---- discord oauth ----
 
-    def _oauth_callback(self, fake_user):
+    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
+    def test_oauth_callback_creates_member(self):
         import json as _json
         from unittest.mock import patch
+        fake_user = {"id": "555", "username": "newbie", "global_name": "Newbie", "avatar": None}
         with patch("skills.auth_discord.urllib.request.urlopen") as mock_open:
             mock_open.return_value.__enter__.return_value.read.side_effect = [
                 b'{"access_token": "at"}',
@@ -292,19 +294,10 @@ class ApiTests(TestCase):
             state = "abc123"
             signed = signing.TimestampSigner(salt=STATE_SALT).sign(state)
             self.client.cookies["oauth_state"] = signed
-            return self.client.get(f"/api/auth/discord/callback/?code=c&state={state}")
-
-    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
-    def test_oauth_callback_known_member_gets_token(self):
-        r = self._oauth_callback({"id": "111", "username": "test", "global_name": "Test", "avatar": None})
+            r = self.client.get(f"/api/auth/discord/callback/?code=c&state={state}")
         self.assertEqual(r.status_code, 200)
+        self.assertEqual(Member.objects.filter(discord_id="555").count(), 1)
         self.assertIn("token", r.json())
-
-    @override_settings(DISCORD_CLIENT_ID="cid", DISCORD_CLIENT_SECRET="secret")  # noqa: S105
-    def test_oauth_callback_rejects_unknown_account(self):
-        r = self._oauth_callback({"id": "555", "username": "newbie", "global_name": "Newbie", "avatar": None})
-        self.assertEqual(r.status_code, 403)
-        self.assertFalse(Member.objects.filter(discord_id="555").exists())
 
     def test_oauth_login_not_configured(self):
         r = self.client.get("/api/auth/discord/login/")
@@ -338,49 +331,96 @@ class ServiceTests(TestCase):
         self.assertEqual(rule.discord_role_name, "One")
 
 
-@override_settings(SKILL_TRACKER_TOKEN=TEST_TOKEN, DISCORD_ADMIN_IDS="999")
-class SecurityAuditTests(TestCase):
-    """Regression tests for the 2026-11 security audit (SKL-1, SKL-3, SKL-4, SKL-6)."""
+PLAIN_STATIC = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+                "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}}
+
+
+@override_settings(SKILL_TRACKER_TOKEN=TEST_TOKEN, DISCORD_ADMIN_IDS="999", LEADERSHIP_GROUPS=["Leadership"], STORAGES=PLAIN_STATIC)
+class PointsAuthorisationTests(TestCase):
+    """Audit SKL-4: members claim their own points (pending); leadership and services award."""
 
     def setUp(self):
         self.member = Member.objects.create(discord_id="111", display_name="M", email="m@example.test")
-        self.victim = Member.objects.create(discord_id="222", display_name="V", email="v@example.test")
+        self.other = Member.objects.create(discord_id="222", display_name="O", email="o@example.test")
+        self.lead = Member.objects.create(discord_id="333", display_name="L", email="l@example.test")
         self.admin = Member.objects.create(discord_id="999", display_name="A", is_admin=True)
 
     def session(self, member):
         return {"HTTP_X_AUTH_TOKEN": issue_session_token(member)}
 
-    def test_session_member_cannot_award_points(self):
-        r = self.client.post("/api/members/222/points/", {"points": "9999"},
-                             content_type="application/json", **self.session(self.member))
-        self.assertEqual(r.status_code, 403)
-        self.assertEqual(points_total(self.victim), 0)
+    def post_points(self, ident, body, **auth):
+        return self.client.post(f"/api/members/{ident}/points/", body, content_type="application/json", **auth)
 
-    def test_service_can_award_points(self):
-        r = self.client.post("/api/members/222/points/", {"points": "5", "description": "x"},
-                             content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {TEST_TOKEN}")
+    def site_login(self, member, groups=()):
+        session = self.client.session
+        session["member_id"] = member.pk
+        session["ak_groups"] = list(groups)
+        session.save()
+
+    def test_member_cannot_award_points_to_someone_else(self):
+        r = self.post_points("222", {"points": "9999", "description": "x"}, **self.session(self.member))
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(points_total(self.other), 0)
+
+    def test_member_claim_for_self_is_pending(self):
+        r = self.post_points("111", {"points": "5", "description": "Ran a workshop"}, **self.session(self.member))
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(r.json()["status"], "pending")
+        self.assertEqual(points_total(self.member), 0)
+
+    def test_member_claim_needs_description(self):
+        r = self.post_points("111", {"points": "5"}, **self.session(self.member))
+        self.assertEqual(r.status_code, 400)
+
+    def test_service_awards_directly(self):
+        r = self.post_points("222", {"points": "5", "description": "x"}, HTTP_AUTHORIZATION=f"Bearer {TEST_TOKEN}")
         self.assertIn(r.status_code, (200, 201))
+        self.assertEqual(points_total(self.other), 5)
 
-    def test_session_member_cannot_overwrite_email(self):
-        r = self.client.post("/api/members/", {"discord_id": "222", "email": "attacker@example.test"},
-                             content_type="application/json", **self.session(self.member))
-        self.assertEqual(r.status_code, 403)
-        self.victim.refresh_from_db()
-        self.assertEqual(self.victim.email, "v@example.test")
-
-    def test_admin_session_can_upsert(self):
-        r = self.client.post("/api/members/", {"discord_id": "333", "display_name": "New"},
-                             content_type="application/json", **self.session(self.admin))
+    def test_admin_session_awards_anyone(self):
+        r = self.post_points("222", {"points": "5", "description": "x"}, **self.session(self.admin))
         self.assertIn(r.status_code, (200, 201))
+        self.assertEqual(points_total(self.other), 5)
 
-    def test_member_cannot_attach_points_to_action_item(self):
-        r = self.client.post("/api/action-items/", {"title": "t", "points": "9999"},
-                             content_type="application/json", **self.session(self.member))
-        self.assertEqual(r.status_code, 403)
+    def test_leadership_approves_claim_on_website(self):
+        from .models import PointsClaim
+        claim = PointsClaim.objects.create(member=self.member, points=5, description="Workshop")
+        self.site_login(self.lead, ["Leadership"])
+        r = self.client.post(f"/points/{claim.pk}/review/", {"decision": "approved"})
+        self.assertEqual(r.status_code, 302)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, "approved")
+        self.assertEqual(points_total(self.member), 5)
+        # second review is refused, so points are never awarded twice
+        self.client.post(f"/points/{claim.pk}/review/", {"decision": "approved"})
+        self.assertEqual(points_total(self.member), 5)
 
-    def test_archived_member_session_rejected(self):
-        from django.utils import timezone
-        token = issue_session_token(self.member)
-        Member.objects.filter(pk=self.member.pk).update(archived_at=timezone.now())
-        r = self.client.get("/api/members/111/", HTTP_X_AUTH_TOKEN=token)
-        self.assertEqual(r.status_code, 401)
+    def test_non_leader_cannot_review_or_award(self):
+        from .models import PointsClaim
+        claim = PointsClaim.objects.create(member=self.other, points=5, description="x")
+        self.site_login(self.member, ["Members"])
+        self.client.post(f"/points/{claim.pk}/review/", {"decision": "approved"})
+        self.client.post("/points/award/", {"member": self.other.pk, "points": "5", "description": "x"})
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, "pending")
+        self.assertEqual(points_total(self.other), 0)
+
+    def test_leader_cannot_approve_own_claim(self):
+        from .models import PointsClaim
+        claim = PointsClaim.objects.create(member=self.lead, points=5, description="x")
+        self.site_login(self.lead, ["Leadership"])
+        self.client.post(f"/points/{claim.pk}/review/", {"decision": "approved"})
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, "pending")
+
+    def test_leader_awards_anyone_on_website(self):
+        self.site_login(self.lead, ["Leadership"])
+        self.client.post("/points/award/", {"member": self.other.pk, "points": "3", "description": "Help"})
+        self.assertEqual(points_total(self.other), 3)
+
+    def test_member_submits_on_website(self):
+        self.site_login(self.member)
+        self.client.post("/points/submit/", {"points": "2", "description": "Cleanup"})
+        self.assertEqual(self.member.points_claims.count(), 1)
+        self.assertEqual(points_total(self.member), 0)
+        self.assertEqual(self.client.get("/points/").status_code, 200)

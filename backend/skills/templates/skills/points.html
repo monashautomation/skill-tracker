@@ -1,0 +1,57 @@
+{% extends "skills/base.html" %}
+{% block title %}Points{% endblock %}
+{% block content %}
+<header class="pagehead">
+  <p class="eyebrow">{% if leader %}Review queue{% else %}Your points{% endif %}</p>
+  <h1 class="display">Points</h1>
+</header>
+
+{% if leader %}
+<section class="panel" aria-labelledby="h-q">
+  <h2 id="h-q" class="eyebrow">Waiting for approval <b>{{ pending|length }}</b></h2>
+  {% for c in pending %}
+  <form class="review" method="post" action="{% url 'points_review' c.pk %}">{% csrf_token %}
+    <div class="review__who"><a href="{% url 'profile' c.member.pk %}">{{ c.member }}</a><span class="badge badge--pending">{{ c.points }} pts</span><small>{{ c.submitted_at|date:"j M Y" }}</small></div>
+    <p class="muted">{{ c.description }}</p>
+    <label class="review__note"><span class="sr">Note for {{ c.member }}</span><input name="note" maxlength="300" placeholder="Optional note"></label>
+    <div class="review__act">
+      <button class="btn btn--solid" name="decision" value="approved">Approve</button>
+      <button class="btn btn--ghost" name="decision" value="rejected">Reject</button>
+    </div>
+  </form>
+  {% empty %}<p class="muted">Nothing waiting. Members' submissions show up here.</p>{% endfor %}
+</section>
+
+<section class="panel" aria-labelledby="h-a">
+  <h2 id="h-a" class="eyebrow">Award points</h2>
+  <form method="post" action="{% url 'points_award' %}" class="inline">{% csrf_token %}
+    <label>Member
+      <select name="member" required>{% for m in members %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select></label>
+    <label>Points <input name="points" inputmode="decimal" required size="6"></label>
+    <label>What for <input name="description" maxlength="300" required></label>
+    <button class="btn btn--solid">Award points</button>
+  </form>
+</section>
+
+{% if reviewed %}
+<section class="panel" aria-labelledby="h-r">
+  <h2 id="h-r" class="eyebrow">Recently reviewed</h2>
+  <ul class="ledger">
+    {% for c in reviewed %}<li><span><a href="{% url 'profile' c.member.pk %}">{{ c.member }}</a>, {{ c.points }} pts: {{ c.description }}{% if c.review_note %} <em class="muted">({{ c.review_note }})</em>{% endif %}</span><b>{{ c.get_status_display }}</b></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="panel" aria-labelledby="h-m">
+  <h2 id="h-m" class="eyebrow">Submit your points</h2>
+  <form method="post" action="{% url 'points_submit' %}" class="inline">{% csrf_token %}
+    <label>Points <input name="points" inputmode="decimal" required size="6"></label>
+    <label>What for <input name="description" maxlength="300" required></label>
+    <button class="btn btn--ghost">Submit for approval</button>
+  </form>
+  {% for c in mine %}
+  <p class="myind"><span class="badge badge--{{ c.status }}">{{ c.points }} pts</span> <b>{{ c.get_status_display }}</b> {{ c.description }}{% if c.review_note %} <span class="muted">{{ c.review_note }}</span>{% endif %}</p>
+  {% empty %}<p class="muted">You haven't submitted any points yet.</p>{% endfor %}
+</section>
+{% endblock %}

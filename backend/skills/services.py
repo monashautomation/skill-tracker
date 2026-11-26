@@ -2,10 +2,19 @@
 from datetime import date
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import LessonCompletion, MemberSkill, PointsEntry, QuizAttempt, RoleRule, Skill
+from .models import (
+    LessonCompletion,
+    MemberSkill,
+    PointsClaim,
+    PointsEntry,
+    QuizAttempt,
+    RoleRule,
+    Skill,
+)
 
 
 def points_total(member) -> Decimal:
@@ -26,6 +35,28 @@ def award_points(*, member, source, points, description="", earned_on=None,
         external_ref=external_ref, logged_by=logged_by,
     )
     return entry, True
+
+
+def submit_points_claim(*, member, points, description):
+    """A member's own claim; counts only once leadership approves it."""
+    return PointsClaim.objects.create(member=member, points=points, description=description)
+
+
+def review_points_claim(claim, *, decision, reviewer, note=""):
+    """Approve (creates the PointsEntry) or reject a pending claim. Returns False if already reviewed."""
+    with transaction.atomic():
+        claim = PointsClaim.objects.select_for_update().get(pk=claim.pk)
+        if claim.status != PointsClaim.STATUS_PENDING:
+            return False
+        if decision == PointsClaim.STATUS_APPROVED:
+            claim.entry, _ = award_points(
+                member=claim.member, source=PointsEntry.SOURCE_MANUAL, points=claim.points,
+                description=claim.description, logged_by=reviewer,
+            )
+        claim.status, claim.reviewed_by, claim.reviewed_at = decision, reviewer, timezone.now()
+        claim.review_note = note[:300]
+        claim.save()
+    return True
 
 
 def grade_quiz(quiz, answers: list) -> tuple[int, bool]:

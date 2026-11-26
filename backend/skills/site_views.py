@@ -12,9 +12,18 @@ from django.views.decorators.http import require_POST
 
 from . import perms
 from .directory import DirectoryError, sync_directory
-from .http import clean_int
-from .models import Induction, InductionType, Member, MemberSkill, Skill, SkillRating
-from .services import upsert_skill_items
+from .http import MAX_DESCRIPTION, clean_int, clean_points
+from .models import (
+    Induction,
+    InductionType,
+    Member,
+    MemberSkill,
+    PointsClaim,
+    PointsEntry,
+    Skill,
+    SkillRating,
+)
+from .services import award_points, review_points_claim, submit_points_claim, upsert_skill_items
 from .site_auth import login_required_member
 
 LEVELS = ["Curious", "Beginner", "Basic", "Competent", "Advanced", "Expert"]
@@ -224,6 +233,30 @@ def inductions(request):
     return render(request, "skills/inductions.html", ctx)
 
 
+@login_required_member
+def points(request):
+    viewer = request.member
+    ctx = {"mine": viewer.points_claims.all()[:20], "leader": perms.request_is_leadership(request)}
+    if ctx["leader"]:
+        claims = PointsClaim.objects.select_related("member", "reviewed_by")
+        ctx["pending"] = claims.filter(status=PointsClaim.STATUS_PENDING,
+                                       member__archived_at__isnull=True).order_by("submitted_at")
+        ctx["reviewed"] = claims.exclude(status=PointsClaim.STATUS_PENDING).order_by("-reviewed_at")[:15]
+        ctx["members"] = Member.objects.filter(archived_at__isnull=True).order_by("display_name")
+    return render(request, "skills/points.html", ctx)
+
+
+def _points_form(request):
+    """(points, description) from the POST, or None after flashing the problem."""
+    pts, err = clean_points(request.POST.get("points", "").strip() or None)
+    description = request.POST.get("description", "").strip()
+    if err or not description or len(description) > MAX_DESCRIPTION:
+        messages.error(request, f"Give a positive number of points and say what they're for "
+                                f"(up to {MAX_DESCRIPTION} characters).")
+        return None
+    return pts, description
+
+
 # ----------------------------------------------------------- POST actions
 # Every view re-checks permission; templates only hide buttons.
 
@@ -335,6 +368,56 @@ def induction_review(request, pk):
     ind.save()
     messages.success(request, f"{ind.induction_type.name} for {ind.member}: {decision}.")
     return redirect("inductions")
+
+
+@login_required_member
+@require_POST
+def points_submit(request):
+    """Members claim points for themselves; leadership approves them."""
+    form = _points_form(request)
+    if form:
+        submit_points_claim(member=request.member, points=form[0], description=form[1])
+        messages.success(request, "Submitted. Your points count once leadership approves them.")
+    return redirect("points")
+
+
+@login_required_member
+@require_POST
+def points_award(request):
+    """Leadership awards points to anyone, straight away."""
+    if not perms.request_is_leadership(request):
+        messages.error(request, "Only leadership can award points to other members.")
+        return redirect("points")
+    target = Member.objects.filter(pk=request.POST.get("member"), archived_at__isnull=True).first()
+    form = _points_form(request)
+    if target is None:
+        messages.error(request, "Choose a current member.")
+    elif form:
+        award_points(member=target, source=PointsEntry.SOURCE_MANUAL, points=form[0],
+                     description=form[1], logged_by=request.member)
+        messages.success(request, f"Awarded {form[0]} points to {target}.")
+    return redirect("points")
+
+
+@login_required_member
+@require_POST
+def points_review(request, pk):
+    if not perms.request_is_leadership(request):
+        messages.error(request, "Only leadership can review point submissions.")
+        return redirect("points")
+    decision = request.POST.get("decision")
+    if decision not in (PointsClaim.STATUS_APPROVED, PointsClaim.STATUS_REJECTED):
+        messages.error(request, "Choose approve or reject.")
+        return redirect("points")
+    claim = get_object_or_404(PointsClaim, pk=pk)
+    if claim.member_id == request.member.pk and not request.member.is_admin:
+        messages.error(request, "Someone else in leadership needs to review your own submission.")
+    elif review_points_claim(claim, decision=decision, reviewer=request.member,
+                             note=request.POST.get("note", "").strip()):
+        messages.success(request, f"{claim.member}'s {claim.points} points: {decision}.")
+    else:
+        messages.error(request, "That submission was already reviewed.")
+    return redirect("points")
 
 
 @login_required_member

@@ -65,6 +65,7 @@ come back automatically if they return.
 | `AUTHENTIK_ISSUER` / `AUTHENTIK_CLIENT_ID` / `AUTHENTIK_CLIENT_SECRET` | OIDC app (issuer like `https://auth.monashautomation.com/application/o/skills/`) |
 | `DIRECTORY_API_KEY` / `DIRECTORY_URL` | People Directory access (URL defaults to directory.monashautomation.com) |
 | `SKILLS_EDITOR_POSITIONS` | comma-separated position substrings that may edit others' skills (default `Lead,Chief,Executive,Manager`); directory admins always can |
+| `LEADERSHIP_GROUPS` | comma-separated Authentik group names that can award points to anyone and approve members' point submissions on the website (Points page). Empty = admins only |
 | `DATABASE_URL` | `postgres://user:pass@host:5432/db`; sqlite when unset |
 | `DEV_LOGIN_EMAIL` | with `DJANGO_DEBUG=true` only: `/auth/login/` logs in as this member |
 

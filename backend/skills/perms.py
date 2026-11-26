@@ -22,6 +22,19 @@ def can_edit_ratings(actor: Member, target: Member) -> bool:
     return is_editor(actor)
 
 
+def is_leadership(member: Member, groups=()) -> bool:
+    """Admin, or in one of LEADERSHIP_GROUPS (Authentik groups from the website login)."""
+    if member.is_admin:
+        return True
+    return bool(set(groups or ()) & set(settings.LEADERSHIP_GROUPS))
+
+
+def request_is_leadership(request) -> bool:
+    """Website request: groups were stored in the session at Authentik login."""
+    member = getattr(request, "member", None)
+    return bool(member) and is_leadership(member, request.session.get("ak_groups", ()))
+
+
 def can_review_inductions(actor: Member) -> bool:
     return actor.is_admin
 

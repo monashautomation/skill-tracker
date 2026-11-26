@@ -146,6 +146,12 @@ DIRECTORY_URL = os.environ.get("DIRECTORY_URL", "https://directory.monashautomat
 DIRECTORY_API_KEY = os.environ.get("DIRECTORY_API_KEY", "")
 # Members whose directory position contains one of these (case-insensitive)
 # can edit other members' skills and ratings, as can admins.
+# Authentik groups whose members can award points to anyone and approve members'
+# point submissions (website). Admins always can. Comma-separated group names.
+LEADERSHIP_GROUPS = [
+    g.strip() for g in os.environ.get("LEADERSHIP_GROUPS", "").split(",") if g.strip()
+]
+
 SKILLS_EDITOR_POSITIONS = [
     p.strip()
     for p in os.environ.get("SKILLS_EDITOR_POSITIONS", "Lead,Chief,Executive,Manager").split(",")
