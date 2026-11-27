@@ -44,6 +44,7 @@ from .services import (
     grade_quiz,
     points_total,
     record_quiz_attempt,
+    submit_points_claim,
     upsert_skill_items,
 )
 
@@ -75,6 +76,10 @@ def _archived_409():
 def _is_service(request) -> bool:
     """True for a bare service-token call (no on-behalf-of member)."""
     return not (getattr(request, "caller_member", None) or getattr(request, "session_member", None))
+
+
+def _acting_member(request):
+    return getattr(request, "caller_member", None) or getattr(request, "session_member", None)
 
 
 def _skill_items_payload(member: Member) -> list:
@@ -186,6 +191,10 @@ def get_member(request, ident: str):
 
 @require_POST
 def award_points_view(request, ident: str):
+    # Points drive Discord role upgrades (audit SKL-4). Services (training site, syncs)
+    # and admins award directly; a member may only claim points for themselves, which
+    # waits for leadership approval on the website.
+    actor = None if _is_service(request) else _acting_member(request)
     member = resolve_member(ident)
     if not member:
         return JsonResponse({"error": "member not found"}, status=404)
@@ -206,12 +215,20 @@ def award_points_view(request, ident: str):
     external_ref, err = clean_str(body.get("external_ref"), 128, field="external_ref")
     if err:
         return JsonResponse({"error": err}, status=400)
+    if actor is not None and not actor.is_admin:
+        if actor.pk != member.pk:
+            return JsonResponse({"error": "you can only submit points for yourself"}, status=403)
+        if not description:
+            return JsonResponse({"error": "description required: say what the points are for"}, status=400)
+        claim = submit_points_claim(member=member, points=points, description=description)
+        return JsonResponse({"claim_id": claim.id, "status": claim.status}, status=202)
     entry, created = award_points(
         member=member,
         source=source or PointsEntry.SOURCE_MANUAL,
         points=points,
         description=description,
         external_ref=external_ref or None,
+        logged_by=actor,
     )
     return JsonResponse(
         {

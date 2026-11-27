@@ -9,3 +9,5 @@ data:
   AUTHENTIK_ISSUER: "https://auth.monashautomation.com/application/o/skills/"
   DIRECTORY_URL: "https://directory.monashautomation.com"
   SKILLS_EDITOR_POSITIONS: "Lead,Chief,Executive,Manager"
+  # Authentik groups that award/approve points (empty = admins only). Set to your leadership group.
+  LEADERSHIP_GROUPS: ""

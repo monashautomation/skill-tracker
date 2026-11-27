@@ -48,9 +48,11 @@ def not_in_directory():
                         content_type="text/plain; charset=utf-8")
 
 
-def _log_in(request, member: Member, next_url: str = "/"):
+def _log_in(request, member: Member, next_url: str = "/", groups=()):
     request.session.cycle_key()
     request.session["member_id"] = member.pk
+    # Authentik groups decide leadership (perms.is_leadership); refreshed every login.
+    request.session["ak_groups"] = [str(g) for g in groups if isinstance(g, str)][:200]
     member.last_login_at = timezone.now()
     member.save(update_fields=["last_login_at"])
     return redirect(next_url)
@@ -109,12 +111,14 @@ def callback(request):
         info = requests.get(cfg["userinfo_endpoint"], timeout=TIMEOUT, headers={
             "Authorization": f"Bearer {token.json()['access_token']}"})
         info.raise_for_status()
-        email = (info.json().get("email") or "").strip()
+        claims = info.json()
+        email = (claims.get("email") or "").strip()
+        groups = claims.get("groups") or []
     except (requests.RequestException, ValueError, KeyError):
         log.warning("authentik: code exchange failed")
         return HttpResponse("Login failed. Please try again.", status=502)
     member = _member_for_email(email) if email else None
-    return _log_in(request, member, next_url) if member else not_in_directory()
+    return _log_in(request, member, next_url, groups) if member else not_in_directory()
 
 
 @require_http_methods(["GET", "POST"])

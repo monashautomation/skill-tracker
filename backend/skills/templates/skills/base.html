@@ -17,6 +17,7 @@
     <nav class="nav" aria-label="Main">
       <a href="{% url 'roster' %}" {% if request.resolver_match.url_name == 'roster' %}aria-current="page"{% endif %}>People</a>
       <a href="{% url 'skills_map' %}" {% if request.resolver_match.url_name == 'skills_map' %}aria-current="page"{% endif %}>Skills map</a>
+      <a href="{% url 'points' %}" {% if request.resolver_match.url_name == 'points' %}aria-current="page"{% endif %}>Points</a>
       <a href="{% url 'inductions' %}" {% if request.resolver_match.url_name == 'inductions' %}aria-current="page"{% endif %}>Inductions</a>
       {% if request.member.is_admin %}<a href="{% url 'api_keys' %}" {% if request.resolver_match.url_name == 'api_keys' %}aria-current="page"{% endif %}>API</a>{% endif %}
     </nav>

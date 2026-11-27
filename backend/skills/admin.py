@@ -10,6 +10,7 @@ from .models import (
     LessonCompletion,
     Member,
     MemberSkill,
+    PointsClaim,
     PointsEntry,
     Quiz,
     QuizAttempt,
@@ -30,6 +31,13 @@ class MemberAdmin(admin.ModelAdmin):
 class SkillRatingAdmin(admin.ModelAdmin):
     list_display = ("member", "leadership", "engineering", "software",
                     "electronics", "project_mgmt", "communication")
+
+
+@admin.register(PointsClaim)
+class PointsClaimAdmin(admin.ModelAdmin):
+    list_display = ("member", "points", "status", "submitted_at", "reviewed_by")
+    list_filter = ("status",)
+    search_fields = ("member__discord_id", "member__display_name", "description")
 
 
 @admin.register(PointsEntry)
